@@ -1,0 +1,104 @@
+---
+title: "final"
+author: "Qing Xu"
+date: "April 21, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+#regression tree
+```{r}
+library(tidyverse)
+library(janitor)
+library(readxl)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(caret)
+df<-read_excel("../Copy of WHR2018Chapter2OnlineData.xls") %>%
+  clean_names()
+df<-df[,1:14]
+df<-df[,-10:-11]
+df<-df[,-1:-2]
+df<-df %>%
+  drop_na()
+set.seed(1)
+index <- createDataPartition(df$life_ladder, p=0.75, list=FALSE)
+train_data <- df[index,]
+test_data <- df[-index,]
+```
+Separate data set into train set and validation set in 3:1.  
+
+```{r}
+rpart.df <- rpart(life_ladder~log_gdp_per_capita+social_support+healthy_life_expectancy_at_birth+freedom_to_make_life_choices+generosity+perceptions_of_corruption+confidence_in_national_government+democratic_quality+delivery_quality, method="anova",data=train_data)
+rpart.plot(rpart.df,type=3)
+plotcp(rpart.df)#choose cp=0.014
+
+#prune
+pfit<- prune(rpart.df, cp=0.014)
+rpart.plot(pfit,type=3,main="Pruned Regression tree for happiness score")
+pred <- predict(pfit,test_data)
+mean((pred - test_data$life_ladder)^2)  #0.315
+
+```
+Choose size=7 and cp=0.014,we get a prune tree with 7 terminal nodes and their means.  
+The test error is 0.315.  
+
+#bagging 
+```{r}
+set.seed(2)
+bag_df <- randomForest(life_ladder~log_gdp_per_capita+social_support+healthy_life_expectancy_at_birth+freedom_to_make_life_choices+generosity+perceptions_of_corruption+confidence_in_national_government+democratic_quality+delivery_quality, data = train_data,mtry = 9, importance =TRUE)
+importance(bag_df) #Health and social support and GPA are most important
+pred_df <- predict(bag_df,test_data)
+mean((pred_df - test_data$life_ladder)^2) #test error=0.156
+```
+Using bagging and we found that the three most important variables are healthy life expectancy at birth, GDP and social support. These three factors all have positive association with happiness scores.  
+The test error is 0.156.  
+
+#boosting
+```{r}
+train_control <- trainControl(method="cv", number=10)
+# fix the parameters of the algorithm
+grid <- expand.grid(n.trees=c(50,100,500,1000), #tuning parameter
+                    shrinkage=c(0.01,0.05,0.1,0.5),
+                    interaction.depth=c(2,4),
+                    n.minobsinnode = c(10)) 
+# train the model
+set.seed(2)
+model <- train(life_ladder~., 
+               train_data, 
+               trControl=train_control, 
+               method="gbm", 
+               tuneGrid=grid,
+               preProcess = c("center","scale"),
+               verbose = FALSE)
+# summarize results
+print(model)
+summary(model) #healthy, gdp,social
+pred_1 <- predict(model,test_data)
+mean((pred_1 - test_data$life_ladder)^2) #0.20
+```
+Using boosting for scaled and center data, we found that the three most important variables are healthy life expectancy at birth,GDP and social support. These three factors all have positive association with happiness scores.   
+The test error is 0.20.  
+
+#rf
+```{r}
+set.seed(2)
+model_rf<-train(life_ladder~.,
+                train_data,
+                importance=TRUE,
+                method='rf', 
+                trControl=train_control
+                )
+print(model_rf)
+varImp(model_rf)
+plot(varImp(object=model_rf),
+     main="RF - Variable Importance") #healthy,social,democratic
+pred_2 <- predict(model_rf,test_data)
+mean((pred_2 - test_data$life_ladder)^2) #0.151
+```
+Using random forest and we found that the three most important variables are healthy life expectancy at birth,social support and democratic quality. These three factors all have positive association with happiness scores.   
+The test error is 0.151.  
+
+During these ensembel methods for regression tree, random forest method has smallest test error so that it is the best method. The three most important variables for happiness scores are similar. Healthy life expectancy at birth is the most important variable and the larger average equivalent number of years of full health that a newborn could expect to live,the higher happiness score will the people have. Higher GDP, complete social support and high democratic quality will bring people happiness.  
+We can see that money of the country is not the most important factor of happiness but it still is a key point.Health and social support play a important part in people's happiness life. 
