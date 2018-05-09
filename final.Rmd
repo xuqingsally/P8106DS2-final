@@ -19,7 +19,7 @@ library(rpart)
 library(rpart.plot)
 library(randomForest)
 library(caret)
-df<-read_excel("WHR2018Chapter2OnlineData.xls") %>%
+df<-read_excel('E:/Biostatistics MSPH/8106 DS2/final/WHR2018Chapter2OnlineData.xls') %>%
   clean_names()
 df<-df[,1:14]
 df<-df[,-10:-11]
@@ -278,20 +278,24 @@ plot(knnmod,main="KNN")
 
 Through LGOCV, the minimal cross validation MSE for KNN is 0.1811 when K is 5.
 
-#Support vector machine
-```{r svm}
+#Support vector machine(Linear)
+```{r linear svm}
 set.seed(1)
+svmgrid=expand.grid(cost=(1:10)*0.1, Loss=c("L1","L2"))
 svmmod <- train(life_ladder ~ ., data = df,
              method = "svmLinear3",
              preProcess=c("center", "scale"),
-             trControl = trainControl(method = "LGOCV",verboseIter=T,number=10))
+             trControl = trainControl(method = "LGOCV",verboseIter=T,number=10), tuneGrid=svmgrid)
 min(svmmod$results$RMSE)^2
 plot(svmmod, main="SVM")
 svmmod$bestTune
-#0.3297699
+ggplot(svmmod)+
+  theme_light()+
+  labs(title="SVM")
+#0.3297174
 ```
 
-Through LGOCV, the minimal cross validation MSE for SVM is 0.3298 when cost is 0.5 and when L1 loss is used.
+Through LGOCV, the minimal cross validation MSE for SVM is 0.3297 when cost is 0.6 and when L1 loss is used.
 
 #Model comparison
 For the 10 models above, we use resamples function to compare their performance.
@@ -305,12 +309,9 @@ diff1=diff(resamp)
 summary(diff1)
 ```
 
-From resampling, we can see that random forest has the best prediction of life ladder values among the 10 methods, followed by KNN and GBM. 
-The medium performance models includes boosted GAM, bagging tree, and bagging MARS.
-Lastly, in predicting life ladder values, PCR, PLSR, elastic net, and SVM have similar MSEs, which are higher than other models.
-From the density plot, we can see that the boosted GAM has the smallest variability.
+From resampling results, we can see that random forest has the best prediction of happiness score among the 10 methods, followed by KNN and GBM. The medium performance models include boosted GAM, bagging tree, and bagging MARS. Lastly, PCR, PLSR, elastic net, and linear SVM have similar MSEs, which are higher than other models. Their poor performance is due to the linear restrictions, hence the true model is probably nonlinear. From the density plot, it is also seen that the boosted GAM has the smallest variability.
 
-After fitting the regression model with full dataset, we also splitted the data into training set and test set to fit regression and classification models.
+After fitting the regression model with the whole dataset, we also tried splitting the data into training set and test set to fit regression and classification models.
 
 #regression tree
 ```{r}
