@@ -19,6 +19,7 @@ library(rpart)
 library(rpart.plot)
 library(randomForest)
 library(caret)
+library(glmnet)
 df<-read_excel("WHR2018Chapter2OnlineData.xls") %>%
   clean_names()
 df<-df[,1:14]
@@ -170,7 +171,6 @@ pls_model2=train(life_ladder~.,data= df,
                  preProcess=c("center", "scale"),
                  trControl = trainControl(method = "LGOCV",verboseIter=T,number=10), tuneLength = 9 )
 min(pls_model2$results$RMSE)^2
-varImp(pls_model2)
 pls_model2$bestTune
 plot(pls_model2,main ="PLSR")
 # 0.329472
@@ -314,7 +314,6 @@ After fitting the regression model with full dataset, we also splitted the data 
 
 #regression tree
 ```{r}
-df<-df[,-1:-2]
 set.seed(1)
 index <- createDataPartition(df$life_ladder, p=0.75, list=FALSE)
 train_data <- df[index,]
