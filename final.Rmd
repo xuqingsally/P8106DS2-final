@@ -6,22 +6,86 @@ output: html_document
 editor_options: 
   chunk_output_type: console
 ---
-#regression tree
+
+#Exploratory Analysis
+
 ```{r}
+library(dplyr)
 library(tidyverse)
-library(janitor)
 library(readxl)
+library(janitor)
+library(rworldmap)
 library(rpart)
 library(rpart.plot)
 library(randomForest)
 library(caret)
-df<-read_excel("../Copy of WHR2018Chapter2OnlineData.xls") %>%
+df<-read_excel("WHR2018Chapter2OnlineData.xls") %>%
   clean_names()
 df<-df[,1:14]
 df<-df[,-10:-11]
-df<-df[,-1:-2]
 df<-df %>%
   drop_na()
+```
+
+##Correlation Analysis
+
+```{r}
+library(corrplot)
+df_corr = df%>%
+  select(-country,-year)
+ladder_corr <- cor( df_corr, use = "complete", method = "pearson")
+corrplot(ladder_corr)
+```
+
+We could see that GDP per capita, health life expectancy at birth, delivery quality and social support are highly correlated with life ladder. And perception of corruption has negative correlation with life ladder. But confidence in national government also has negative correlation with life ladder, though it is close to zero, which may indicate that people in countries with questioning about government may be happier.
+
+##World Map of Happiness
+
+```{r}
+df_map = df%>%
+  filter(year == 2016)%>%
+  select(country,life_ladder) 
+ 
+colnames(df_map)<-c("country","value")
+correction16<-c("Guinea"="Equatorial Guinea", "Serbia"="Republic of Serbia",  "Tanzania"="United Republic of Tanzania","United States"="United States of America","United States"="United States Virgin Islands","Russia"="Russian Federation","Venezuela"="Venezuela, Bolivarian Republic of","Bolivia"="Bolivia (Plurinational State of)","South Korea"="Republic of Korea" )
+for(i in names(correction16)){
+  df_map[df_map$country==i,"country"]<-correction16[i]
+}
+
+d <- data.frame(
+  country=df_map$country,
+  value=df_map$value)
+
+n <- joinCountryData2Map(d, joinCode="NAME", nameJoinColumn="country")
+mapCountryData(n, nameColumnToPlot="value", mapTitle="World Map for Hapiness in 2016",colourPalette="terrain")
+```
+
+The happiest countries are countries from Northern Europe, Australia, and Canada. Europe, America and Oceania are at a high level of happiness. Countries in Asia and Africa own a lower level of happiness, especially some countries at Africa.
+
+##Cluster Analysis
+```{r}
+df_cluster = df%>%
+  filter(year == 2016)%>%
+  select(-year,-country,-life_ladder) 
+df_cluster = scale(df_cluster) 
+d_cluster = data.frame(
+  country = df_map$country,
+  data = df_cluster
+) 
+
+data.dist=dist(d_cluster)
+plot(hclust(data.dist), labels=d_cluster$country, 
+     main="Complete Linkage")
+df_rank =
+df_map%>%
+  arrange(desc(value))
+```
+ 
+Cluster analysis is conducted using all variables expect life ladder. There are two main clusters and most countries in the left cluster has a higher GDP than the right one.
+
+#regression tree
+```{r}
+df<-df[,-1:-2]
 set.seed(1)
 index <- createDataPartition(df$life_ladder, p=0.75, list=FALSE)
 train_data <- df[index,]
