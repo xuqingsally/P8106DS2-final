@@ -23,6 +23,9 @@ df<-read_excel("WHR2018Chapter2OnlineData.xls") %>%
   clean_names()
 df<-df[,1:14]
 df<-df[,-10:-11]
+df1=df %>% 
+  drop_na()
+df<-df[,-1:-2]
 df<-df %>%
   drop_na()
 ```
@@ -31,8 +34,8 @@ df<-df %>%
 
 ```{r}
 library(corrplot)
-df_corr = df%>%
-  select(-country,-year)
+df_corr = df1%>%
+  dplyr::select(-country,-year)
 ladder_corr <- cor( df_corr, use = "complete", method = "pearson")
 corrplot(ladder_corr)
 ```
@@ -42,9 +45,9 @@ We could see that GDP per capita, health life expectancy at birth, delivery qual
 ##World Map of Happiness
 
 ```{r}
-df_map = df%>%
-  filter(year == 2016)%>%
-  select(country,life_ladder) 
+df_map = df1%>%
+  dplyr::filter(year == 2016)%>%
+  dplyr::select(country,life_ladder) 
  
 colnames(df_map)<-c("country","value")
 correction16<-c("Guinea"="Equatorial Guinea", "Serbia"="Republic of Serbia",  "Tanzania"="United Republic of Tanzania","United States"="United States of America","United States"="United States Virgin Islands","Russia"="Russian Federation","Venezuela"="Venezuela, Bolivarian Republic of","Bolivia"="Bolivia (Plurinational State of)","South Korea"="Republic of Korea" )
@@ -64,9 +67,9 @@ The happiest countries are countries from Northern Europe, Australia, and Canada
 
 ##Cluster Analysis
 ```{r}
-df_cluster = df%>%
-  filter(year == 2016)%>%
-  select(-year,-country,-life_ladder) 
+df_cluster = df1%>%
+  dplyr::filter(year == 2016)%>%
+  dplyr::select(-year,-country,-life_ladder) 
 df_cluster = scale(df_cluster) 
 d_cluster = data.frame(
   country = df_map$country,
@@ -82,6 +85,232 @@ df_map%>%
 ```
  
 Cluster analysis is conducted using all variables expect life ladder. There are two main clusters and most countries in the left cluster has a higher GDP than the right one.
+
+
+#Regression
+```{r}
+x = model.matrix(life_ladder~.,df)[,-1]
+y = df$life_ladder
+```
+
+#Ridge regression
+
+```{r ridge}
+set.seed(1)
+#10 fold cv
+cv.ridge = cv.glmnet(x,y,alpha=0, type.measure = "mse")
+plot(cv.ridge, main="Ridge regression CV MSE-lambda")
+cv.ridge$lambda.min
+min(cv.ridge$cvm)
+#0.3312722
+```
+
+Through 10 fold cross validation, we found the minimal cross validation MSE for ridge regression is 0.3313 when lambda is 0.09845.
+
+#Lasso regression
+
+```{r lasso}
+set.seed(1)
+#10 fold cv
+cv.lasso = cv.glmnet(x,y,alpha=1, type.measure = "mse")
+plot(cv.lasso, main="Lasso regression CV MSE-lambda")
+opt_lambdalasso = cv.lasso$lambda.min
+min(cv.lasso$cvm)
+#0.1324718
+```
+
+Through 10 fold cross validation, we found the minimal cross validation MSE for lasso regression is 0.1325 when lambda is 0.002328.
+
+#Elastic net model
+
+```{r elastic net model lgocv}
+set.seed(1)
+glmnetmodel2 <- train(
+  life_ladder~., data = df, method = "glmnet",
+  preProcess=c("center", "scale"),
+  trControl = trainControl("LGOCV", number = 10)
+  ,tuneLength = 9
+  )
+ggplot(glmnetmodel2)+
+  theme_light()+
+  labs(title="Elastic-net LGOCV")
+glmnetmodel2$bestTune
+min(glmnetmodel2$results$RMSE)^2
+#0.3294714
+```
+
+Through leave group out cross validation(LGOCV), we found the minimal cross validation MSE for elastic net model is 0.3295 when alpha is 0.8875 and lambda is 0.002843475.
+
+#Principal component regression
+
+```{r pcr LGOCV}
+set.seed(1)
+pcrmodel1 <- train(
+  life_ladder~., data = df, method = "pcr",
+  preProcess=c("center", "scale"),
+  trControl = trainControl("LGOCV", number = 10)
+  ,tuneLength = 9
+  )
+plot(pcrmodel1,main="PCR")
+
+pcrmodel1$bestTune
+min(pcrmodel1$results$RMSE)^2
+#biplot(pcrmodel$finalModel)
+#0.3304539
+```
+
+Through LGOCV, we found the minimal cross validation MSE for PCR is 0.3305 when the model includes 8 principal components.
+
+#Partial least square regression
+
+```{r pls lgocv}
+set.seed(1)
+pls_model2=train(life_ladder~.,data= df,
+                 method = "pls",
+                 preProcess=c("center", "scale"),
+                 trControl = trainControl(method = "LGOCV",verboseIter=T,number=10), tuneLength = 9 )
+min(pls_model2$results$RMSE)^2
+varImp(pls_model2)
+pls_model2$bestTune
+plot(pls_model2,main ="PLSR")
+# 0.329472
+```
+
+Through LGOCV, we found the minimal cross validation MSE for PLSR is 0.3295 when the model includes 6 PLS components. PLSR has less component and shows lower CV MSE compared with PCR. This is because PLSR chooses components with regard to both maximal variance and the correlation with the response, whereas PCR only selects principal components based on maximal variance.
+
+#Random forest
+
+```{r random forest regression tree^}
+set.seed(1)
+rf_model=train(life_ladder~.,data= df,
+                 method = "rf",
+                 preProcess=c("center", "scale"),
+                 trControl = trainControl(method = "LGOCV",verboseIter=T,number=10 ), tuneLength = 5 )
+min(rf_model$results$RMSE)^2
+rf_model$bestTune
+plot(rf_model, main ="Random forest")
+# 0.1718519
+```
+
+Through LGOCV, we found the minimal cross validation MSE for random forest is 0.1719 when each tree has 3 predictors.
+
+#Gradient Boosting Machine
+
+```{r gbm ^}
+gbmgrid=expand.grid(interaction.depth = c(1,3,5), 
+                        n.trees = (2:30)*150, 
+                        shrinkage = c(0.01,0.001),
+                        n.minobsinnode = 10)
+set.seed(1)
+boost_model=train(life_ladder~.,data= df,
+                 method = "gbm",
+                 preProcess=c("center", "scale"),
+                 trControl = trainControl(method = "LGOCV",verboseIter=T,number=10), tuneGrid=gbmgrid )
+min(boost_model$results$RMSE)^2
+ggplot(boost_model)+
+  theme(panel.background = element_rect(fill = "white", colour = "grey50"))+
+  labs(title="GBM LGOCV")
+boost_model$bestTune
+# 0.1903925
+```
+
+Through LGOCV, we found the minimal cross validation MSE for GBM is 0.1904 when the model has 4500 trees, each tree has 5 splits, and the shrinkage parameter is 0.01.
+
+#Bagging trees
+
+```{r bagged tree}
+set.seed(1)
+bag_model=train(life_ladder~.,data= df,
+                 method = "treebag",
+                 preProcess=c("center", "scale"),
+                 trControl = trainControl(method = "LGOCV",verboseIter=T,number=10 ) )
+bag_model$results[2]^2
+# 0.2945061
+```
+Through LGOCV, we found the minimal cross validation MSE for bagging trees is 0.2945.
+
+#Bagging MARS
+```{r bagging mars multivariate adaptive regression splines}
+set.seed(1)
+bagmars_model=train(life_ladder~.,data= df,
+                 method = "bagEarth",
+                 preProcess=c("center", "scale"),
+                 trControl = trainControl(method = "LGOCV",verboseIter=T,number=10 ), tuneLength = 5 )
+min(bagmars_model$results$RMSE)^2
+bagmars_model$bestTune
+plot(bagmars_model, main="Bagging MARS")
+#0.2750501
+```
+
+Through LGOCV, the minimal cross validation MSE for bagging MARS is 0.2751 with nprune=13 and degree=1.
+
+#Boosted GAM
+
+```{r boosted GAM}
+set.seed(1)
+gamboost_model=train(life_ladder~.,data= df,
+                 method = "gamboost",
+                 preProcess=c("center", "scale"),
+                 trControl = trainControl(method = "LGOCV",verboseIter=T,number=10 ), tuneLength = 5 )
+min(gamboost_model$results[3])^2
+gamboost_model$bestTune
+plot(gamboost_model, main="Boosting GAM")
+#0.2826903
+```
+
+Through LGOCV, the minimal cross validation MSE for Boosted GAM is 0.2827.
+
+#K-nearest neighbours
+
+```{r knn ^}
+set.seed(1)
+knnmod <- train(life_ladder ~ ., data = df,
+             method = "knn",
+             preProcess=c("center", "scale"),
+             tuneLength = 12,
+             trControl = trainControl(method = "LGOCV",verboseIter=T,number=10))
+min(knnmod$results$RMSE)^2
+knnmod$bestTune
+plot(knnmod,main="KNN")
+
+#0.1811445
+```
+
+Through LGOCV, the minimal cross validation MSE for KNN is 0.1811 when K is 5.
+
+#Support vector machine
+```{r svm}
+set.seed(1)
+svmmod <- train(life_ladder ~ ., data = df,
+             method = "svmLinear3",
+             preProcess=c("center", "scale"),
+             trControl = trainControl(method = "LGOCV",verboseIter=T,number=10))
+min(svmmod$results$RMSE)^2
+plot(svmmod, main="SVM")
+svmmod$bestTune
+#0.3297699
+```
+
+Through LGOCV, the minimal cross validation MSE for SVM is 0.3298 when cost is 0.5 and when L1 loss is used.
+
+#Model comparison
+For the 10 models above, we use resamples function to compare their performance.
+```{r resampling}
+resamp <- resamples(list( plsr = pls_model2, pcr = pcrmodel1,glmnet=glmnetmodel2,GBM=boost_model,gamboost=gamboost_model,randomForest=rf_model,bagEarth=bagmars_model,treebag=bag_model, knn=knnmod, svm=svmmod))
+bwplot(resamp, metric = "RMSE")
+densityplot(resamp, metric = "RMSE")
+splom(resamp, metric = "RMSE")
+
+diff1=diff(resamp)
+summary(diff1)
+```
+
+From resampling, we can see that random forest has the best prediction of life ladder values among the 10 methods, followed by KNN and GBM. 
+The medium performance models includes boosted GAM, bagging tree, and bagging MARS.
+Lastly, in predicting life ladder values, PCR, PLSR, elastic net, and SVM have similar MSEs, which are higher than other models.
+From the density plot, we can see that the boosted GAM has the smallest variability.
+
+After fitting the regression model with full dataset, we also splitted the data into training set and test set to fit regression and classification models.
 
 #regression tree
 ```{r}
